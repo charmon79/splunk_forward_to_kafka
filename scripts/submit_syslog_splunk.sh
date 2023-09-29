@@ -14,7 +14,8 @@ DATA=$( cat << EOF
     "value.converter.schemas.enable": "false",
     "syslog.listener": "TCP",
     "syslog.port": "5555",
-    "tasks.max": "1"
+    "tasks.max": "1",
+    "topic.prefix" : "splunk"
   }
 }
 EOF
