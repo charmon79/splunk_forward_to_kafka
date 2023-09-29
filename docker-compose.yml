@@ -1,107 +1,93 @@
 ---
-version: '3'
+version: '2'
 
 services:
 
-  splunk_search:
-     image: splunk/splunk:latest
-     container_name: splunk_search
-     environment:
-       - SPLUNK_START_ARGS=--accept-license
-       - SPLUNK_HEC_TOKEN=3bca5f4c-1eff-4eee-9113-ea94c284478a
-       - SPLUNK_PASSWORD=Password1
-       - SPLUNK_LICENSE_URI=Free
-     ports:
-       - 8000:8000
-       - 9998:9997
-
-  splunk_hf:
-     image: splunk/splunk:latest
-     container_name: splunk_hf
-     environment:
-       - SPLUNK_START_ARGS=--accept-license
-       - SPLUNK_PASSWORD=Password1
-       - SPLUNK_LICENSE_URI=Free
-       - SPLUNK_APPS_URL=https://raw.githubusercontent.com/JohnnyMirza/splunk_forward_to_kafka/master/splunk_forward_to_kafka.tgz
-     ports:
-       - 8001:8000
-       - 9997:9997
-     volumes:
-       - $PWD/splunk_forward_to_kafka/:$SPLUNK_HOME/etc/apps/splunk_forward_to_kafka/
-  
   zookeeper:
-    image: confluentinc/cp-zookeeper:6.0.0
+    image: confluentinc/cp-zookeeper:7.4.0
+    hostname: zookeeper
     container_name: zookeeper
+    ports:
+      - "2181:2181"
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
 
   broker:
-    image: confluentinc/cp-kafka:6.0.0
+    image: confluentinc/cp-server:7.4.0
+    hostname: broker
     container_name: broker
     depends_on:
       - zookeeper
     ports:
-      - 9092:9092
+      - "9092:9092"
+      - "9101:9101"
     environment:
       KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker:29092,PLAINTEXT_HOST://localhost:9092
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_METRIC_REPORTERS: io.confluent.metrics.reporter.ConfluentMetricsReporter
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_CONFLUENT_LICENSE_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_CONFLUENT_BALANCER_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 100
+      KAFKA_JMX_PORT: 9101
+      KAFKA_JMX_HOSTNAME: localhost
+      KAFKA_CONFLUENT_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      CONFLUENT_METRICS_REPORTER_BOOTSTRAP_SERVERS: broker:29092
+      CONFLUENT_METRICS_REPORTER_TOPIC_REPLICAS: 1
+      CONFLUENT_METRICS_ENABLE: 'true'
+      CONFLUENT_SUPPORT_CUSTOMER_ID: 'anonymous'
 
   schema-registry:
-    image: confluentinc/cp-schema-registry:6.0.0
+    image: confluentinc/cp-schema-registry:7.4.0
+    hostname: schema-registry
     container_name: schema-registry
     depends_on:
-      - zookeeper
       - broker
     ports:
-      - 8081:8081
+      - "8081:8081"
     environment:
       SCHEMA_REGISTRY_HOST_NAME: schema-registry
-      SCHEMA_REGISTRY_KAFKASTORE_CONNECTION_URL: zookeeper:2181
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: 'broker:29092'
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
 
   kafka-connect:
-    image: confluentinc/cp-kafka-connect:6.0.0
+    image: cnfldemos/cp-server-connect-datagen:0.6.0-7.3.0
+    hostname: kafka-connect
     container_name: kafka-connect
     depends_on:
       - broker
       - schema-registry
     ports:
-      - 8083:8083
+      - "8083:8083"
       - 5555:5555
     environment:
-      CONNECT_BOOTSTRAP_SERVERS: "broker:29092"
-      CONNECT_REST_ADVERTISED_HOST_NAME: "kafka-connect"
-      CONNECT_REST_PORT: 8083
-      CONNECT_GROUP_ID: kafka-connect
-      CONNECT_CONFIG_STORAGE_TOPIC: _kafka-connect-configs
-      CONNECT_OFFSET_STORAGE_TOPIC: _kafka-connect-offsets
-      CONNECT_STATUS_STORAGE_TOPIC: _kafka-connect-status
-      CONNECT_KEY_CONVERTER: io.confluent.connect.avro.AvroConverter
-      CONNECT_KEY_CONVERTER_SCHEMA_REGISTRY_URL: 'http://schema-registry:8081'
+      CONNECT_BOOTSTRAP_SERVERS: 'broker:29092'
+      CONNECT_REST_ADVERTISED_HOST_NAME: kafka-connect
+      CONNECT_GROUP_ID: compose-connect-group
+      CONNECT_CONFIG_STORAGE_TOPIC: docker-connect-configs
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_OFFSET_FLUSH_INTERVAL_MS: 10000
+      CONNECT_OFFSET_STORAGE_TOPIC: docker-connect-offsets
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_STATUS_STORAGE_TOPIC: docker-connect-status
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.storage.StringConverter
       CONNECT_VALUE_CONVERTER: io.confluent.connect.avro.AvroConverter
-      CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL: 'http://schema-registry:8081'
-      CONNECT_INTERNAL_KEY_CONVERTER: "org.apache.kafka.connect.json.JsonConverter"
-      CONNECT_INTERNAL_VALUE_CONVERTER: "org.apache.kafka.connect.json.JsonConverter"
-      CONNECT_LOG4J_ROOT_LOGLEVEL: "INFO"
-      CONNECT_LOG4J_LOGGERS: "org.apache.kafka.connect.runtime.rest=WARN,org.reflections=ERROR"
-      CONNECT_LOG4J_APPENDER_STDOUT_LAYOUT_CONVERSIONPATTERN: "[%d] %p %X{connector.context}%m (%c:%L)%n"
-      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: "1"
-      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: "1"
-      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: "1"
-      CONNECT_PLUGIN_PATH: '/usr/share/java,/usr/share/confluent-hub-components/,/connectors/'
-    volumes:
-      - $PWD/connectors:/connectors
-      # - $PWD/scripts:/scripts
-    command: 
-      - bash 
-      - -c 
+      CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      # CLASSPATH required due to CC-2422
+      CLASSPATH: /usr/share/java/monitoring-interceptors/monitoring-interceptors-7.4.0.jar
+      CONNECT_PRODUCER_INTERCEPTOR_CLASSES: "io.confluent.monitoring.clients.interceptor.MonitoringProducerInterceptor"
+      CONNECT_CONSUMER_INTERCEPTOR_CLASSES: "io.confluent.monitoring.clients.interceptor.MonitoringConsumerInterceptor"
+      CONNECT_PLUGIN_PATH: '/usr/share/java,/usr/share/confluent-hub-components/'
+      CONNECT_LOG4J_LOGGERS: org.apache.zookeeper=ERROR,org.I0Itec.zkclient=ERROR,org.reflections=ERROR
+    command:
+      - bash
+      - -c
       - |
         echo "Installing connector plugins"
         confluent-hub install --no-prompt confluentinc/kafka-connect-elasticsearch:latest
@@ -109,34 +95,89 @@ services:
         confluent-hub install --no-prompt confluentinc/kafka-connect-syslog:latest
         #
         echo "Launching Kafka Connect worker"
-        /etc/confluent/docker/run & 
+        /etc/confluent/docker/run &
         #
         sleep infinity
-      # - sh -c "/scripts/submit_syslog_splunk.sh"
-      # - sh -c "/scripts/submit_splunk_sink.sh"
-        
 
-  ksqldb:
-    image: confluentinc/cp-ksqldb-server:6.0.0
-    hostname: ksqldb
-    container_name: ksqldb
+  control-center:
+    image: confluentinc/cp-enterprise-control-center:7.4.0
+    hostname: control-center
+    container_name: control-center
+    depends_on:
+      - broker
+      - schema-registry
+      - kafka-connect
+      - ksqldb-server
+    ports:
+      - "9021:9021"
+    environment:
+      CONTROL_CENTER_BOOTSTRAP_SERVERS: 'broker:29092'
+      CONTROL_CENTER_CONNECT_CONNECT-DEFAULT_CLUSTER: 'kafka-connect:8083'
+      CONTROL_CENTER_KSQL_KSQLDB1_URL: "http://ksqldb-server:8088"
+      CONTROL_CENTER_KSQL_KSQLDB1_ADVERTISED_URL: "http://localhost:8088"
+      CONTROL_CENTER_SCHEMA_REGISTRY_URL: "http://schema-registry:8081"
+      CONTROL_CENTER_REPLICATION_FACTOR: 1
+      CONTROL_CENTER_INTERNAL_TOPICS_PARTITIONS: 1
+      CONTROL_CENTER_MONITORING_INTERCEPTOR_TOPIC_PARTITIONS: 1
+      CONFLUENT_METRICS_TOPIC_REPLICATION: 1
+      PORT: 9021
+
+  ksqldb-server:
+    image: confluentinc/cp-ksqldb-server:7.4.0
+    hostname: ksqldb-server
+    container_name: ksqldb-server
     depends_on:
       - broker
       - kafka-connect
     ports:
       - "8088:8088"
     environment:
-      KSQL_LISTENERS: http://0.0.0.0:8088
-      KSQL_BOOTSTRAP_SERVERS: broker:29092
-      KSQL_KSQL_LOGGING_PROCESSING_STREAM_AUTO_CREATE: "true"
-      KSQL_KSQL_LOGGING_PROCESSING_TOPIC_AUTO_CREATE: "true"
-      KSQL_KSQL_CONNECT_URL: http://kafka-connect:8083
-      KSQL_KSQL_SCHEMA_REGISTRY_URL: http://schema-registry:8081
-      KSQL_KSQL_SERVICE_ID: confluent_ksqldb_01
-      KSQL_KSQL_HIDDEN_TOPICS: '^_.*'
+      KSQL_CONFIG_DIR: "/etc/ksql"
+      KSQL_BOOTSTRAP_SERVERS: "broker:29092"
+      KSQL_HOST_NAME: ksqldb-server
+      KSQL_LISTENERS: "http://0.0.0.0:8088"
+      KSQL_CACHE_MAX_BYTES_BUFFERING: 0
+      KSQL_KSQL_SCHEMA_REGISTRY_URL: "http://schema-registry:8081"
+      KSQL_PRODUCER_INTERCEPTOR_CLASSES: "io.confluent.monitoring.clients.interceptor.MonitoringProducerInterceptor"
+      KSQL_CONSUMER_INTERCEPTOR_CLASSES: "io.confluent.monitoring.clients.interceptor.MonitoringConsumerInterceptor"
+      KSQL_KSQL_CONNECT_URL: "http://kafka-connect:8083"
+      KSQL_KSQL_LOGGING_PROCESSING_TOPIC_REPLICATION_FACTOR: 1
+      KSQL_KSQL_LOGGING_PROCESSING_TOPIC_AUTO_CREATE: 'true'
+      KSQL_KSQL_LOGGING_PROCESSING_STREAM_AUTO_CREATE: 'true'
+
+  splunk_search:
+     image: splunk/splunk:latest
+     platform: linux/amd64
+     container_name: splunk_search
+     environment:
+       - SPLUNK_START_ARGS=--accept-license
+       - SPLUNK_HEC_TOKEN=3bca5f4c-1eff-4eee-9113-ea94c284478a
+       - SPLUNK_PASSWORD=Password1
+       - SPLUNK_LICENSE_URI=Free
+       - SPLUNK_HOME=/opt/splunk
+     ports:
+       - 8000:8000
+       - 9998:9997
+
+  splunk_hf:
+     image: splunk/splunk:latest
+     platform: linux/amd64
+     container_name: splunk_hf
+     environment:
+       - SPLUNK_START_ARGS=--accept-license
+       - SPLUNK_PASSWORD=Password1
+       - SPLUNK_LICENSE_URI=Free
+       - SPLUNK_APPS_URL=https://raw.githubusercontent.com/JohnnyMirza/splunk_forward_to_kafka/master/splunk_forward_to_kafka.tgz
+       - SPLUNK_HOME=/opt/splunk
+     ports:
+       - 8001:8000
+       - 9997:9997
+     volumes:
+       - $PWD/splunk_forward_to_kafka/:$SPLUNK_HOME/etc/apps/splunk_forward_to_kafka/
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:7.9.2
+    # platform: linux/amd64
     container_name: elasticsearch
     ports:
       - 9200:9200
@@ -147,6 +188,7 @@ services:
 
   kibana:
     image: docker.elastic.co/kibana/kibana:7.9.2
+    platform: linux/amd64
     container_name: kibana
     depends_on:
       - elasticsearch
@@ -154,28 +196,3 @@ services:
       - 5601:5601
     environment:
       discovery.type: "single-node"
-
-  control-center:
-    image: confluentinc/cp-enterprise-control-center:6.0.0
-    hostname: control-center
-    container_name: control-center
-    user: root
-    depends_on:
-      - broker
-      - schema-registry
-      - kafka-connect
-    ports:
-      - 9021:9021
-    environment:
-      CONTROL_CENTER_BOOTSTRAP_SERVERS: broker:29092
-      CONTROL_CENTER_REPLICATION_FACTOR: 1
-      CONTROL_CENTER_MONITORING_INTERCEPTOR_TOPIC_PARTITIONS: 1
-      CONTROL_CENTER_METRICS_TOPIC_PARTITIONS: 1
-      CONTROL_CENTER_STREAMS_CACHE_MAX_BYTES_BUFFERING: 100000000
-      CONTROL_CENTER_STREAMS_CONSUMER_REQUEST_TIMEOUT_MS: "960032"
-      CONTROL_CENTER_STREAMS_NUM_STREAM_THREADS: 1
-      CONTROL_CENTER_REST_LISTENERS: http://0.0.0.0:9021
-      CONTROL_CENTER_CONNECT_CONNECT1_CLUSTER: http://kafka-connect:8083
-      CONTROL_CENTER_KSQL_SERVER_URL: http://ksqldb:8088
-      CONTROL_CENTER_SCHEMA_REGISTRY_SR1_URL: http://schema-registry:8081
-      CONTROL_CENTER_KSQL_SERVER_ADVERTISED_URL: http://localhost:8088
