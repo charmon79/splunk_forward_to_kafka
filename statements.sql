@@ -1,16 +1,6 @@
-CREATE SOURCE CONNECTOR SYSLOG_TCP WITH (
-  'connector.class' =  'io.confluent.connect.syslog.SyslogSourceConnector',
-  'kafka.topic' =  'splunk-syslog-tcp',
-  'confluent.topic.bootstrap.servers' =  'broker = 29092',
-  'topic' = 'splunk-syslog-tcp',
-  'producer.interceptor.classes' =  'io.confluent.monitoring.clients.interceptor.MonitoringProducerInterceptor',
-  'value.converter' =  'org.apache.kafka.connect.json.JsonConverter',
-  'value.converter.schemas.enable' =  'false',
-  'syslog.listener' =  'TCP',
-  'syslog.port' =  '5555',
-  'tasks.max' =  '1'
-);
-
+/*
+  Declare a stream over the raw input topic.
+*/
 CREATE STREAM SPLUNK (
     rawMessage VARCHAR
   ) WITH (
@@ -18,12 +8,18 @@ CREATE STREAM SPLUNK (
     VALUE_FORMAT='JSON'
   );
 
+/*
+  Explode the rawMessage to yield discrete metadata & event fields.
+*/
 CREATE STREAM SPLUNK_META AS
 SELECT SPLIT_TO_MAP(rawMessage, '||', '=') PAYLOAD
 FROM SPLUNK
 EMIT CHANGES;
 
-
+/*
+  Add the necessary metadata fields to yield the "cooked" data
+  expected by the Splunk indexer.
+*/
 CREATE STREAM TOHECWITHSPLUNK AS SELECT
   SPLUNK_META.PAYLOAD['sourcetype'] `sourcetype`,
   SPLUNK_META.PAYLOAD['source'] `source`,
@@ -33,33 +29,13 @@ CREATE STREAM TOHECWITHSPLUNK AS SELECT
 FROM SPLUNK_META SPLUNK_META
 EMIT CHANGES;
 
+/*
+  Create a filtered stream containing only log events
+  from the launchd service, excluding "Notice" level messages.
+*/
 CREATE STREAM LAUNCHD_NO_NOTICE AS
 SELECT *
 FROM TOHECWITHSPLUNK
 WHERE `sourcetype` = 'launchd'
 AND `event` NOT LIKE '%<Notice>%'
 ;
-
-CREATE SINK CONNECTOR SPLUNKSINK WITH (
-  'connector.class' = 'com.splunk.kafka.connect.SplunkSinkConnector',
-  'topics' =  'DNS_SPLUNK'
-  'splunk.hec.uri'  = 'http://192.168.1.101:8089',
-  'splunk.hec.token' = '3bca5f4c-1eff-4eee-9113-ea94c284478a',
-  'value.converter' = 'org.apache.kafka.connect.storage.StringConverter',
-  'confluent.topic.bootstrap.servers' = 'kafka:9092',
-  'splunk.hec.json.event.formatted' =  'true',
-  'tasks.max' =  '1'
-);
-
-
--- CREATE SINK CONNECTOR SINK_ELASTIC_01 WITH (
---   'connector.class' = 'io.confluent.connect.elasticsearch.ElasticsearchSinkConnector',
---   'connection.url'  = 'http://elasticsearch:9200',
---   'key.converter'   = 'org.apache.kafka.connect.storage.StringConverter',
---   'value.converter' =  'org.apache.kafka.connect.json.JsonConverter',
---   'type.name'       = '_doc',
---   'errors.tolerance' = 'all',
---   'topics'          = 'NETFLOW_ELASTICSEARCH',
---   'key.ignore'      = 'true',
---   'schema.ignore'   = 'false'
--- );
