@@ -3,7 +3,7 @@
 HEADER="Content-Type: application/json"
 DATA=$( cat << EOF
 {
-  "name": "Splunk-syslog-tcp",
+  "name": "splunk-syslog-tcp",
   "config": {
     "connector.class": "io.confluent.connect.syslog.SyslogSourceConnector",
     "kafka.topic": "splunk-syslog-tcp",

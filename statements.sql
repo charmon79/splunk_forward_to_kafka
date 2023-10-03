@@ -18,7 +18,8 @@ CREATE STREAM SPLUNK (
     VALUE_FORMAT='JSON'
   );
 
-CREATE STREAM SPLUNK_META AS SELECT SPLIT_TO_MAP(rawMessage, '||', '¥') PAYLOAD
+CREATE STREAM SPLUNK_META AS
+SELECT SPLIT_TO_MAP(rawMessage, '||', '=') PAYLOAD
 FROM SPLUNK
 EMIT CHANGES;
 
@@ -32,13 +33,12 @@ CREATE STREAM TOHECWITHSPLUNK AS SELECT
 FROM SPLUNK_META SPLUNK_META
 EMIT CHANGES;
 
-CREATE STREAM NETFLOW_ELASTICSEARCH AS SELECT * FROM  TOHECWITHSPLUNK 
-WHERE `sourcetype`='cp_zeek_conn'
-EMIT CHANGES;
-
-CREATE STREAM DNS_SPLUNK AS SELECT * FROM  TOHECWITHSPLUNK 
-WHERE `sourcetype`='cp_zeek_dns'
-EMIT CHANGES;
+CREATE STREAM LAUNCHD_NO_NOTICE AS
+SELECT *
+FROM TOHECWITHSPLUNK
+WHERE `sourcetype` = 'launchd'
+AND `event` NOT LIKE '%<Notice>%'
+;
 
 CREATE SINK CONNECTOR SPLUNKSINK WITH (
   'connector.class' = 'com.splunk.kafka.connect.SplunkSinkConnector',
@@ -52,17 +52,14 @@ CREATE SINK CONNECTOR SPLUNKSINK WITH (
 );
 
 
-CREATE SINK CONNECTOR SINK_ELASTIC_01 WITH (
-  'connector.class' = 'io.confluent.connect.elasticsearch.ElasticsearchSinkConnector',
-  'connection.url'  = 'http://elasticsearch:9200',
-  'key.converter'   = 'org.apache.kafka.connect.storage.StringConverter',
-  'value.converter' =  'org.apache.kafka.connect.json.JsonConverter',
-  'type.name'       = '_doc',
-  'errors.tolerance' = 'all',
-  'topics'          = 'NETFLOW_ELASTICSEARCH',
-  'key.ignore'      = 'true',
-  'schema.ignore'   = 'false'
-);
-
-
-
+-- CREATE SINK CONNECTOR SINK_ELASTIC_01 WITH (
+--   'connector.class' = 'io.confluent.connect.elasticsearch.ElasticsearchSinkConnector',
+--   'connection.url'  = 'http://elasticsearch:9200',
+--   'key.converter'   = 'org.apache.kafka.connect.storage.StringConverter',
+--   'value.converter' =  'org.apache.kafka.connect.json.JsonConverter',
+--   'type.name'       = '_doc',
+--   'errors.tolerance' = 'all',
+--   'topics'          = 'NETFLOW_ELASTICSEARCH',
+--   'key.ignore'      = 'true',
+--   'schema.ignore'   = 'false'
+-- );
